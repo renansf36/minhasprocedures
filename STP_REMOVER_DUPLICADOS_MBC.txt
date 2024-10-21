@@ -1,0 +1,85 @@
+/* Runtime-info
+Application: CadastroTelasAdicionais
+Referer: http://10.10.100.28:8180/mge/CadastroTelasAdicionais.xhtml5
+ResourceID: br.com.sankhya.core.cfg.DicionarioDados
+service-name: AcaoProgramadaSP.createStoredProcedure
+uri: /mge/service.sbr
+*/
+CREATE PROCEDURE "STP_REMOVER_DUPLICADOS_MBC" (
+       @P_CODUSU INT,                -- Código do usuário logado
+       @P_IDSESSAO VARCHAR(4000),    -- Identificador da execução. Serve para buscar informações dos parâmetros/campos da execução.
+       @P_QTDLINHAS INT,             -- Informa a quantidade de registros selecionados no momento da execução.
+       @P_MENSAGEM VARCHAR(4000) OUT -- Caso seja passada uma mensagem aqui, ela será exibida como uma informação ao usuário.
+) AS
+DECLARE
+       --@FIELD_NUBCO INT,
+       @FIELD_NUMDOC INT,
+       @I INT,
+       @DUPLICADO_COUNT INT,
+       @NUBCO_DUPLICADO INT,
+       @FINANCEIRO_STATUS CHAR(1)
+BEGIN
+	
+   	   -- Inicializar a mensagem
+	   SET @P_MENSAGEM = ''
+
+	   -- Inicializando o índice
+       SET @I = 1 
+       
+        -- Obter os valores de NUBCO e NUNOTA para o registro atual
+	  -- SET @FIELD_NUBCO = sankhya.ACT_INT_FIELD(@P_IDSESSAO, @I, 'NUBCO');
+	   SET @FIELD_NUMDOC = sankhya.ACT_INT_FIELD(@P_IDSESSAO, @I, 'NUMDOC');
+	   
+	   
+	  
+       -- Loop para percorrer todos os registros selecionados
+       WHILE @I <= @P_QTDLINHAS -- Este loop permite obter o valor de campos dos registros envolvidos na execução.
+       BEGIN
+	       
+		   
+  		
+	        -- Verificar duplicidade na tabela TGFMBC
+	        SELECT @DUPLICADO_COUNT = COUNT(*)
+	        FROM TGFMBC t
+	        JOIN TSICTA t2 ON t.CODCTABCOINT = t2.CODCTABCOINT
+	        WHERE t.NUMDOC = @FIELD_NUMDOC
+	        AND t2.CLASSE NOT IN ('x', 'c')
+	        
+	        
+        
+     		IF @DUPLICADO_COUNT > 1
+        	BEGIN
+	        	-- Verificar se o registro tem entrada financeira
+	        	SELECT @NUBCO_DUPLICADO = O.nubco, 
+	        	       @FINANCEIRO_STATUS = O.financeiro
+	        	FROM (
+        		SELECT t.NUBCO AS nubco,
+                   	   (SELECT 'S' FROM TGFFIN fin WHERE fin.nubco = t.NUBCO) AS financeiro 
+            	FROM tgfmbc t
+            	LEFT JOIN tgffin fin ON t.NUBCO = fin.NUBCO
+            	WHERE t.NUMDOC = @FIELD_NUMDOC ) O
+            	WHERE O.financeiro is null
+        		
+            	
+            --	SET @P_MENSAGEM = 'COUNT = ' + CAST(@NUBCO_DUPLICADO AS VARCHAR) + ' Status : ' + CAST(@FINANCEIRO_STATUS AS VARCHAR);
+            	-- Verificar se o registro não está na tabela financeira
+            	
+        		IF @FINANCEIRO_STATUS IS NULL OR @FINANCEIRO_STATUS <> 'S'
+        		BEGIN
+        			 DELETE FROM TGFMBC
+           			 WHERE NUBCO = @NUBCO_DUPLICADO
+           			 
+           			 -- Concatenar a mensagem ao invés de sobrescrever
+               		 SET @P_MENSAGEM = ISNULL(@P_MENSAGEM, '') + 'Duplicado removido NUBCO: ' + CAST(@NUBCO_DUPLICADO AS VARCHAR) + ' onde FINANCEIRO é NULL. '
+            	  END
+       		   END
+
+		   -- Incrementar o índice para o próximo registro
+        SET @I = @I + 1
+    END
+    -- Verificar se nenhuma mensagem foi gerada (nenhum duplicado encontrado)
+    IF @P_MENSAGEM = ''
+    BEGIN
+        SET @P_MENSAGEM = 'Nenhum duplicado encontrado ou nenhum registro com FINANCEIRO = NULL.'
+    END
+END
